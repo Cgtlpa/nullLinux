@@ -10,12 +10,12 @@ RESET='\033[0m'
 print_banner() {
     clear
     echo -e "${CYAN}${BOLD}"
-    echo "  ███╗   ██╗██╗   ██╗██╗     ██╗      ██╗     ██╗███╗   ██╗██╗   ██╗██╗  ██╗"
-    echo "  ████╗  ██║██║   ██║██║     ██║      ██║     ██║████╗  ██║██║   ██║╚██╗██╔╝"
-    echo "  ██╔██╗ ██║██║   ██║██║     ██║      ██║     ██║██╔██╗ ██║██║   ██║ ╚███╔╝ "
-    echo "  ██║╚██╗██║██║   ██║██║     ██║      ██║     ██║██║╚██╗██║██║   ██║ ██╔██╗ "
-    echo "  ██║ ╚████║╚██████╔╝███████╗███████╗ ███████╗██║██║ ╚████║╚██████╔╝██╔╝ ██╗"
-    echo "  ╚═╝  ╚═══╝ ╚═════╝ ╚══════╝╚══════╝ ╚══════╝╚═╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═╝"
+    echo "  ███╗   ██╗██╗   ██╗██╗     ██╗        "
+    echo "  ████╗  ██║██║   ██║██║     ██║        "
+    echo "  ██╔██╗ ██║██║   ██║██║     ██║        "
+    echo "  ██║╚██╗██║██║   ██║██║     ██║        "
+    echo "  ██║ ╚████║╚██████╔╝███████╗███████╗   "
+    echo "  ╚═╝  ╚═══╝ ╚═════╝ ╚══════╝╚══════╝   "
     echo ""
     echo "                      I N S T A L L E R   v1.0"
     echo -e "${RESET}"
@@ -294,6 +294,16 @@ GreeterEnvironment=QT_WAYLAND_SHELL_INTEGRATION=layer-shell
 SDDMEOF"
     fi
 
+    # ---> 1. COPY THE LOGO TO THE NEW HARD DRIVE HERE <---
+    # This assumes logo.txt is in the same folder you are running the installer from
+    mkdir -p /mnt/usr/local/share/nullos
+    if [ -f "logo.txt" ]; then
+        cp logo.txt /mnt/usr/local/share/nullos/logo.txt
+    else
+        echo -e "${YELLOW}Warning: logo.txt not found, skipping custom fastfetch logo.${RESET}"
+    fi
+    # -----------------------------------------------------
+
     arch-chroot /mnt /bin/bash <<EOF
 set -e
 
@@ -325,6 +335,10 @@ useradd -m -G wheel,audio,video,optical,storage -s /bin/bash ${NEW_USER} || \
 echo -e "${CYAN}Set the password for user '${NEW_USER}':${RESET}"
 passwd ${NEW_USER}
 
+# ---> 2. ADD THE ALIAS TO THE NEW USER'S BASHRC HERE <---
+echo 'alias fastfetch="fastfetch --logo /usr/local/share/nullos/fastfetch.txt"' >> /home/${NEW_USER}/.bashrc
+# --------------------------------------------------------
+
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers || \
     sed -i 's/^# %wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/' /etc/sudoers
 
@@ -352,7 +366,6 @@ EOF
 
     echo -e "${GREEN}Chroot configuration complete.${RESET}"
 }
-
 unmount_partitions() {
     echo -e "${CYAN}Unmounting partitions...${RESET}"
 
