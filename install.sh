@@ -294,8 +294,7 @@ GreeterEnvironment=QT_WAYLAND_SHELL_INTEGRATION=layer-shell
 SDDMEOF"
     fi
 
-    # ---> 1. COPY THE LOGO TO THE NEW HARD DRIVE HERE <---
-    # This assumes logo.txt is in the same folder you are running the installer from
+    # ---> 1. COPY LOGO (Must be outside the chroot so it moves from USB to the new drive)
     mkdir -p /mnt/usr/local/share/nullos
     if [ -f "logo.txt" ]; then
         cp logo.txt /mnt/usr/local/share/nullos/logo.txt
@@ -330,14 +329,23 @@ nullpkg -S --noconfirm ${DE_PACKAGES} ${LOGIN_MANAGER} || \
 
 ${SDDM_WAYLAND_BLOCK}
 
+# ---> 2. CREATE THE USER FIRST
 useradd -m -G wheel,audio,video,optical,storage -s /bin/bash ${NEW_USER} || \
     useradd -m -G wheel -s /bin/bash ${NEW_USER}
 echo -e "${CYAN}Set the password for user '${NEW_USER}':${RESET}"
 passwd ${NEW_USER}
 
-# ---> 2. ADD THE ALIAS TO THE NEW USER'S BASHRC HERE <---
-echo 'alias fastfetch="fastfetch --logo /usr/local/share/nullos/fastfetch.txt"' >> /home/${NEW_USER}/.bashrc
-# --------------------------------------------------------
+# ---> 3. INSTALL YAY (Now that the user exists, we can use them to install it!)
+echo -e "${CYAN}Installing 'yay' (AUR Helper)...${RESET}"
+pacman -S --noconfirm git base-devel
+su - ${NEW_USER} -c "git clone https://aur.archlinux.org/yay-bin.git /tmp/yay-bin"
+su - ${NEW_USER} -c "cd /tmp/yay-bin && makepkg -si --noconfirm"
+rm -rf /tmp/yay-bin
+echo -e "${GREEN}yay installed successfully!${RESET}"
+# ------------------------------------------------------------------------
+
+# ---> 4. ADD THE ALIAS (Fixed to match the 'logo.txt' filename)
+echo 'alias fastfetch="fastfetch --logo /usr/local/share/nullos/logo.txt"' >> /home/${NEW_USER}/.bashrc
 
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers || \
     sed -i 's/^# %wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/' /etc/sudoers
