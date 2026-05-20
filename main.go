@@ -108,6 +108,7 @@ var registry = map[string]App{
 	"alacritty":                 {"system", "alacritty"},
 	"kitty":                     {"system", "kitty"},
 	"synapse":                   {"system", "synapse"},
+	"fastfetch":                 {"system", "fastfetch"},
 	"rofi":                      {"system", "rofi"},
 	"dmenu":                     {"system", "dmenu"},
 	"flameshot":                 {"system", "flameshot"},
@@ -140,6 +141,7 @@ var registry = map[string]App{
 	"curl":                      {"system", "curl"},
 	"wget":                      {"system", "wget"},
 	"neofetch":                  {"system", "neofetch"},
+	"fastfetch":                 {"system", "fastfetch"},
 	"tree":                      {"system", "tree"},
 	"jq":                        {"system", "jq"},
 	"ripgrep":                   {"system", "ripgrep"},
@@ -165,6 +167,8 @@ var registry = map[string]App{
 	"procs":                     {"system", "procs"},
 	"dust":                      {"system", "dust"},
 	"roblox":                    {"flatpak", "org.vinegarhq.Vinegar"},
+	"nvidia-latest":             {"system", "nvidia-dkms nvidia-utils linux-headers"},
+	"nvidia-580xx":              {"system", "nvidia-390xx-dkms nvidia-390xx-utils linux-headers"},
 }
 
 func main() {
@@ -258,15 +262,24 @@ func installSystemPackage(target string) error {
 	var pkgManager string
 	var args []string
 
+	targetPkgs := strings.Fields(target)
+
 	if _, err := exec.LookPath("apt-get"); err == nil {
 		pkgManager = "apt-get"
-		args = []string{"install", "-y", target}
+		args = []string{"install", "-y"}
+		args = append(args, targetPkgs...)
 	} else if _, err := exec.LookPath("dnf"); err == nil {
 		pkgManager = "dnf"
-		args = []string{"install", "-y", target}
+		args = []string{"install", "-y"}
+		args = append(args, targetPkgs...)
+	} else if _, err := exec.LookPath("yay"); err == nil {
+		pkgManager = "yay"
+		args = []string{"-S", "--noconfirm"}
+		args = append(args, targetPkgs...)
 	} else if _, err := exec.LookPath("pacman"); err == nil {
 		pkgManager = "pacman"
-		args = []string{"-S", "--noconfirm", target}
+		args = []string{"-S", "--noconfirm"}
+		args = append(args, targetPkgs...)
 	} else {
 		return fmt.Errorf("no supported system package manager found")
 	}
@@ -289,6 +302,8 @@ func updateAll() {
 		sysCmd = exec.Command("apt-get", "upgrade", "-y")
 	} else if _, err := exec.LookPath("dnf"); err == nil {
 		sysCmd = exec.Command("dnf", "upgrade", "-y")
+	} else if _, err := exec.LookPath("yay"); err == nil {
+		sysCmd = exec.Command("yay", "-Syu", "--noconfirm")
 	} else if _, err := exec.LookPath("pacman"); err == nil {
 		sysCmd = exec.Command("pacman", "-Syu", "--noconfirm")
 	}
@@ -325,12 +340,20 @@ func updatePackage(packageName string) {
 		err = cmd.Run()
 	} else if app.Method == "system" {
 		var sysCmd *exec.Cmd
+		targetPkgs := strings.Fields(app.Target)
+
 		if _, e := exec.LookPath("apt-get"); e == nil {
-			sysCmd = exec.Command("apt-get", "install", "--only-upgrade", "-y", app.Target)
+			args := append([]string{"install", "--only-upgrade", "-y"}, targetPkgs...)
+			sysCmd = exec.Command("apt-get", args...)
 		} else if _, e := exec.LookPath("dnf"); e == nil {
-			sysCmd = exec.Command("dnf", "upgrade", "-y", app.Target)
+			args := append([]string{"upgrade", "-y"}, targetPkgs...)
+			sysCmd = exec.Command("dnf", args...)
+		} else if _, e := exec.LookPath("yay"); e == nil {
+			args := append([]string{"-S", "--noconfirm"}, targetPkgs...)
+			sysCmd = exec.Command("yay", args...)
 		} else if _, e := exec.LookPath("pacman"); e == nil {
-			sysCmd = exec.Command("pacman", "-S", "--noconfirm", app.Target)
+			args := append([]string{"-S", "--noconfirm"}, targetPkgs...)
+			sysCmd = exec.Command("pacman", args...)
 		}
 
 		if sysCmd != nil {
