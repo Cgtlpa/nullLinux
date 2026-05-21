@@ -17,7 +17,9 @@ HOSTNAME="nulllinux"
 TIMEZONE="UTC"
 LOCALE="en_US.UTF-8"
 KEYMAP="us"
+ENABLE_SWAP="no"
 INSTALL_YAY="no"
+MICROCODE=""
 
 die() { echo "${RED}ERROR:${RESET} $*" >&2; exit 1; }
 info() { echo "${CYAN}$*${RESET}"; }
@@ -47,7 +49,7 @@ check_internet() {
 
 print_banner() {
     clear || true
-    echo -e "${RED}${BOLD}"
+    echo -e "${CYAN}${BOLD}"
     cat <<'EOF'
   ███╗   ██╗██╗   ██╗██╗     ██╗
   ████╗  ██║██║   ██║██║     ██║
@@ -56,16 +58,13 @@ print_banner() {
   ██║ ╚████║╚██████╔╝███████╗███████╗
   ╚═╝  ╚═══╝ ╚═════╝ ╚══════╝╚══════╝
 
-       I N S T A L L E R   v2.0
+       I N S T A L L E R   v3.0
 EOF
     echo -e "${RESET}"
 }
 
-pause_enter() {
-    read -rp "Press Enter to continue..."
-}
-
 select_disk() {
+    echo
     info "Available disks:"
     lsblk -dpno NAME,SIZE,TYPE | awk '$3=="disk"{printf "%s (%s)\n", $1, $2}'
     echo
@@ -124,6 +123,16 @@ get_username() {
     ok "Username set to: $NEW_USER"
 }
 
+detect_microcode() {
+    local vendor=""
+    vendor="$(lscpu | awk -F: '/Vendor ID/ {gsub(/^[ \t]+/, "", $2); print $2; exit}')"
+    case "$vendor" in
+        GenuineIntel) MICROCODE="intel-ucode" ;;
+        AuthenticAMD) MICROCODE="amd-ucode" ;;
+        *) MICROCODE="" ;;
+    esac
+}
+
 build_de_packages() {
     local packages=()
     local login_manager="sddm"
@@ -132,28 +141,28 @@ build_de_packages() {
 
     case "$CHOSEN_DE" in
         "Hyprland")
-            packages=(hyprland xdg-desktop-portal-hyprland waybar wofi foot)
+            packages=(hyprland xdg-desktop-portal-hyprland waybar wofi foot polkit-gnome pipewire wireplumber pipewire-pulse pipewire-alsa qt5-wayland qt6-wayland dunst)
             sddm_wayland="true"
             ;;
         "KDE Plasma")
-            packages=(plasma kde-applications plasma-wayland-session)
+            packages=(plasma kde-applications plasma-wayland-session pipewire wireplumber pipewire-pulse pipewire-alsa)
             ;;
         "GNOME")
-            packages=(gnome gnome-extra)
+            packages=(gnome gnome-extra pipewire wireplumber pipewire-pulse pipewire-alsa)
             ;;
         "XFCE")
-            packages=(xfce4 xfce4-goodies)
+            packages=(xfce4 xfce4-goodies pipewire wireplumber pipewire-pulse pipewire-alsa)
             ;;
         "LXQt")
-            packages=(lxqt breeze-icons)
+            packages=(lxqt breeze-icons pipewire wireplumber pipewire-pulse pipewire-alsa)
             ;;
         "MangoWC")
-            packages=(mangowc xorg-server xorg-xinit)
+            packages=(mangowc xorg-server xorg-xinit pipewire wireplumber pipewire-pulse pipewire-alsa)
             login_manager="lightdm"
             login_service="lightdm"
             ;;
         "Cinnamon")
-            packages=(cinnamon)
+            packages=(cinnamon pipewire wireplumber pipewire-pulse pipewire-alsa)
             ;;
         *)
             die "Unknown desktop selection."
@@ -172,7 +181,7 @@ partition_disk() {
     parted -s "$TARGET_DISK" mklabel gpt
     parted -s "$TARGET_DISK" mkpart ESP fat32 1MiB 513MiB
     parted -s "$TARGET_DISK" set 1 esp on
-    parted -s "$TARGET_DISK" mkpart primary ext4 513MiB 100%
+    parted -s "$TARGET_DISK" mkpart primary 513MiB 100%
 
     partprobe "$TARGET_DISK"
     sleep 2
@@ -209,11 +218,33 @@ mount_partitions() {
     ok "Partitions mounted."
 }
 
+verify_mounts() {
+    mountpoint -q /mnt || die "/mnt is not mounted."
+    mountpoint -q /mnt/boot/efi || die "/mnt/boot/efi is not mounted."
+}
+
+create_swapfile() {
+    [[ "$ENABLE_SWAP" == "yes" ]] || return 0
+    info "Creating swapfile..."
+    arch-chroot /mnt /bin/bash <<'EOF'
+set -euo pipefail
+dd if=/dev/zero of=/swapfile bs=1M count=8192 status=none
+chmod 600 /swapfile
+mkswap /swapfile
+swapon /swapfile
+echo '/swapfile none swap sw 0 0' >> /etc/fstab
+EOF
+    ok "Swapfile created."
+}
+
 install_base() {
     info "Installing base system..."
-    pacstrap -K /mnt base linux linux-firmware base-devel networkmanager grub efibootmgr sudo
+    local extra_pkgs=(base linux linux-firmware base-devel networkmanager grub efibootmgr sudo)
+    [[ -n "${MICROCODE:-}" ]] && extra_pkgs+=("$MICROCODE")
+    pacstrap -K /mnt "${extra_pkgs[@]}"
     genfstab -U /mnt >> /mnt/etc/fstab
-    ok "Base system installed."
+    [[ -s /mnt/etc/fstab ]] || die "Failed to generate fstab."
+    ok "Base system installed and fstab verified."
 }
 
 configure_chroot() {
@@ -241,13 +272,13 @@ set -euo pipefail
 ln -sf /usr/share/zoneinfo/${TIMEZONE} /etc/localtime
 hwclock --systohc
 
-sed -i 's/^#${LOCALE} UTF-8/${LOCALE} UTF-8/' /etc/locale.gen
+sed -i "s/^#${LOCALE} UTF-8/${LOCALE} UTF-8/" /etc/locale.gen
 locale-gen
 echo "LANG=${LOCALE}" > /etc/locale.conf
 echo "KEYMAP=${KEYMAP}" > /etc/vconsole.conf
 echo "${HOSTNAME}" > /etc/hostname
 
-cat > /etc/hosts <<'HOSTSEOF'
+cat > /etc/hosts <<HOSTSEOF
 127.0.0.1 localhost
 ::1 localhost
 127.0.1.1 ${HOSTNAME}.localdomain ${HOSTNAME}
@@ -256,7 +287,7 @@ HOSTSEOF
 echo "Set the root password:"
 passwd
 
-pacman -S --noconfirm --needed ${de_packages_str} ${LOGIN_MANAGER}
+pacman -S --noconfirm --needed ${de_packages_str} ${LOGIN_MANAGER} pipewire wireplumber pipewire-pulse pipewire-alsa
 
 ${sddm_block}
 
@@ -264,18 +295,19 @@ useradd -m -G wheel,audio,video,optical,storage -s /bin/bash ${NEW_USER}
 echo "Set the password for user ${NEW_USER}:"
 passwd ${NEW_USER}
 
-pacman -S --noconfirm --needed git base-devel
-
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers || true
 sed -i 's/^# %wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/' /etc/sudoers || true
 
 systemctl enable NetworkManager
 systemctl enable ${LOGIN_SERVICE}
 
+if [[ -f /etc/pacman.d/mirrorlist ]]; then
+    pacman -S --noconfirm --needed reflector || true
+fi
+
 grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id="Null Linux"
 grub-mkconfig -o /boot/grub/grub.cfg
 mkinitcpio -P
-
 EOF
 
     ok "Chroot configuration complete."
@@ -288,6 +320,7 @@ install_yay_optional() {
 
     arch-chroot /mnt /bin/bash <<EOF
 set -euo pipefail
+pacman -S --noconfirm --needed git base-devel
 su - ${NEW_USER} -c 'cd /tmp && rm -rf yay-bin && git clone https://aur.archlinux.org/yay-bin.git'
 su - ${NEW_USER} -c 'cd /tmp/yay-bin && makepkg -si --noconfirm'
 rm -rf /tmp/yay-bin
@@ -306,6 +339,7 @@ main() {
     print_banner
     check_uefi
     check_internet
+    detect_microcode
     select_disk
     confirm_wipe
     select_desktop
@@ -314,7 +348,9 @@ main() {
     partition_disk
     format_partitions
     mount_partitions
+    verify_mounts
     install_base
+    create_swapfile
     configure_chroot
     install_yay_optional
     finish_install
