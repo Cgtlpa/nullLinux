@@ -17,7 +17,7 @@ print_banner() {
     echo "  ██║ ╚████║╚██████╔╝███████╗███████╗   "
     echo "  ╚═╝  ╚═══╝ ╚═════╝ ╚══════╝╚══════╝   "
     echo ""
-    echo "                      I N S T A L L E R   v1.0"
+    echo "       I N S T A L L E R   v1.0"
     echo -e "${RESET}"
 }
 
